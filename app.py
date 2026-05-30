@@ -1,65 +1,109 @@
 
-import traceback
+import random
+import base64
 import streamlit as st
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_openai import ChatOpenAI
-import requests
-from bs4 import BeautifulSoup
-from urllib.parse import urlparse
+from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# 1. 프롬프트 개선 (출력 형식을 조금 더 명확하게 지시)
-SUMMARIZE_PROMPT = """다음 제공된 콘텐츠의 핵심 내용을 약 300자 내외로 알기 쉽게 요약해주세요.
-반드시 한국어로 자연스럽게 작성해야 합니다.
+client = OpenAI()
 
-========
-{content}
-========
-"""
 
 def init_page():
-    st.set_page_config(page_title="웹 사이트 요약기", page_icon="🤗")
-    st.header("웹 사이트 요약기 🤗")
-    st.sidebar.title("Options")
+    st.set_page_config(
+        page_title="오늘 뭐 먹지?",
+        page_icon="🍽️"
+    )
 
-def select_model(temperature = 0):
-    models = ("gpt-5.5", "gpt-5.4-mini")
-    model = st.sidebar.radio("Choose a model:", models)
-    if model == 'gpt-5.5':
-        return ChatOpenAI(temperature = temperature, model = 'gpt-5.5')
-    else:
-        return ChatOpenAI(temperature = temperature, model = 'gpt-5.4-mini')
+    st.title("🍽️ 오늘 뭐 먹지?")
+    st.markdown(
+        "GPT가 오늘 먹으면 좋을 음식을 추천하고 "
+        "애니메이션 스타일 이미지까지 생성해드립니다."
+    )
 
-def init_chain():
-    llm = select_model()
-    prompt = ChatPromptTemplate.from_messages([
-        ('user', SUMMARIZE_PROMPT)])
-    chain = prompt | llm | StrOutputParser()
-    return chain
 
-def get_content(url):
-    with st.spinner('웹 사이트 정보 찾는중...'):
-        url = requests.get(url)
-        html = BeautifulSoup(url.text)
-        if html.main:
-            return html.main.text
-        elif html.article:
-            return html.article.text
-        else:
-            return html.body.text
+def recommend_food():
+
+    response = client.responses.create(
+        model="gpt-5",
+        input="""
+        오늘 먹으면 좋을 음식 후보 20개를 추천해줘.
+
+        조건:
+        - 한국 음식
+        - 일본 음식
+        - 중국 음식
+        - 양식
+
+        다양하게 섞어줘.
+
+        음식 이름만 출력해.
+        한 줄에 하나씩 작성.
+        번호 금지.
+        """
+    )
+
+    foods = []
+
+    for line in response.output_text.split("\n"):
+        line = line.strip()
+
+        if line:
+            foods.append(line)
+
+    return random.choice(foods)
+
+
+def generate_food_image(food):
+
+    response = client.images.generate(
+        model="gpt-image-2",
+        prompt=f"""
+        {food}
+
+        일본 애니메이션 스타일. (인물은 나오지 않게)
+
+        음식이 매우 맛있어 보이는 장면.
+
+        밝고 따뜻한 분위기.
+
+        """
+    )
+
+    image_bytes = base64.b64decode(
+        response.data[0].b64_json
+    )
+
+    return image_bytes
+
+
 
 def main():
+
     init_page()
-    chain = init_chain()
-    if url := st.text_input("URL: ", key = 'input'):
-        if content := get_content(url):
-            st.markdown("## Summary")
-            st.write_stream(chain.stream({'content' : content}))
-            st.markdown("-----")
-            st.markdown("## Original Text")
-            st.write(content)
+
+    st.markdown("---")
+
+    if st.button("🎰 룰렛 돌리기"):
+
+        with st.spinner("GPT가 메뉴를 추천하는 중..."):
+
+            food = recommend_food()
+
+        st.success(
+            f"🎯 오늘의 추천 메뉴 : {food}"
+        )
+
+        with st.spinner("이미지 생성 중..."):
+
+            image = generate_food_image(food)
+
+        st.image(
+            image,
+            caption=food,
+            use_container_width=True
+        )
 
 main()
+
